@@ -1,0 +1,7 @@
+target/
+**/*.wav
+output/
+.DS_Store
+*.lock
+.vscode/
+.idea/

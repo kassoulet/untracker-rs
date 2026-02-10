@@ -1,0 +1,11 @@
+[package]
+name = "untracker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openmpt = { path = "../openmpt-rs" }
+hound = "3.5"  # For WAV file output
+clap = { version = "4.0", features = ["derive"] }  # For command-line parsing
+anyhow = "1.0"  # For error handling
+thiserror = "1.0"  # For custom error types
