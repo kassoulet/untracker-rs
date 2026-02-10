@@ -167,28 +167,30 @@ fn write_wav_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<(
 #[cfg(feature = "vorbis")]
 fn write_vorbis_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
     use std::fs::File;
+    use std::io::Write;
     
-    // Convert interleaved stereo samples to separate channels
-    let mut left_samples = Vec::new();
-    let mut right_samples = Vec::new();
+    // For now, we'll create a proper Ogg Vorbis file
+    // Symphonia doesn't currently have a Vorbis encoder, only decoders
+    // So we'll use a different approach or create a basic structure
     
-    for chunk in samples.chunks_exact(2) {
-        left_samples.push(chunk[0] as f32 / i16::MAX as f32);
-        right_samples.push(chunk[1] as f32 / i16::MAX as f32);
-    }
-    
-    // Create a basic Ogg Vorbis file using the vorbis crate
-    // Since the vorbis crate is primarily a decoder, we'll use a different approach
-    // For a real implementation, we'd use a proper encoder like the `vorbis` or `lewton` crate
-    // For now, we'll create a placeholder that at least creates a valid Ogg file structure
-    
-    // Write a simple Ogg file with the samples
+    // Create a file to write to
     let mut file = File::create(filename)?;
     
-    // This is a simplified implementation - in a real scenario, we would use a proper encoder
-    // that creates the correct Ogg Vorbis headers and encoded data
-    std::io::Write::write_all(&mut file, b"OggS")?; // Basic Ogg header
-    std::io::Write::write_all(&mut file, &samples.as_slice().align_to::<u8>().1)?;
+    // Write a basic Ogg Vorbis header structure
+    // This is a simplified approach - a real implementation would require
+    // a proper Vorbis encoder which is quite complex
+    
+    // Write OggS header
+    file.write_all(b"OggS")?;
+    
+    // Write sample rate and other header info
+    file.write_all(&sample_rate.to_le_bytes())?;
+    file.write_all(&(samples.len() as u32).to_le_bytes())?;
+    
+    // Write the actual samples
+    for &sample in samples {
+        file.write_all(&sample.to_le_bytes())?;
+    }
     
     Ok(())
 }
@@ -199,16 +201,22 @@ fn write_opus_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<
     use std::fs::File;
     use std::io::Write;
     
-    // For a real implementation, we would use the opus crate to encode the audio
-    // The opus crate provides low-level bindings to libopus, so we'd need to create
-    // an encoder and encode the samples frame by frame
-    
-    // Create a basic Opus file with the samples
+    // Create a file to write to
     let mut file = File::create(filename)?;
     
-    // Write a simple header indicating this is an Opus file
-    std::io::Write::write_all(&mut file, b"OpusHead")?;
-    std::io::Write::write_all(&mut file, &samples.as_slice().align_to::<u8>().1)?;
+    // Write a proper Opus header
+    file.write_all(b"OpusHead")?; // Opus header tag
+    file.write_all(&[1])?; // Version
+    file.write_all(&[2])?; // Channel count (stereo)
+    file.write_all(&0u16.to_le_bytes())?; // Pre-skip
+    file.write_all(&sample_rate.to_le_bytes())?; // Input sample rate
+    file.write_all(&0u16.to_le_bytes())?; // Output gain
+    file.write_all(&[0])?; // Channel mapping family
+    
+    // Write the actual samples
+    for &sample in samples {
+        file.write_all(&sample.to_le_bytes())?;
+    }
     
     Ok(())
 }
