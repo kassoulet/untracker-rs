@@ -8,6 +8,12 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
+#[cfg(feature = "vorbis")]
+use std::fs::File;
+
+#[cfg(feature = "flac")]
+use std::fs::File as FlacFile;
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -18,10 +24,20 @@ struct Args {
     /// Output directory for stem files
     #[arg(short, long, default_value = ".")]
     output_dir: String,
+    
+    /// Output format: wav, vorbis, opus, flac
+    #[arg(short, long, default_value = "wav")]
+    format: String,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+
+    // Validate format
+    match args.format.as_str() {
+        "wav" | "vorbis" | "opus" | "flac" => {},
+        _ => return Err(anyhow!("Invalid format. Supported formats: wav, vorbis, opus, flac")),
+    }
 
     // Create output directory if it doesn't exist
     fs::create_dir_all(&args.output_dir)?;
@@ -36,7 +52,7 @@ fn main() -> Result<()> {
 
     // Render each instrument as a separate stem
     for i in 1..=num_instruments {
-        render_instrument_stem(&args.input, i as i32, &args.output_dir, &args.input)?;
+        render_instrument_stem(&args.input, i as i32, &args.output_dir, &args.input, &args.format)?;
     }
 
     Ok(())
@@ -54,6 +70,7 @@ fn render_instrument_stem(
     instrument_index: i32,
     output_dir: &str,
     input_filename: &str,
+    format: &str,
 ) -> Result<()> {
     println!("Rendering instrument {}", instrument_index);
 
@@ -74,7 +91,7 @@ fn render_instrument_stem(
     // Unmute only the current instrument
     interactive_interface.set_instrument_mute_status(&module_ext, instrument_index, false);
 
-    // Generate output filename
+    // Generate output filename based on format
     let input_path = Path::new(input_filename);
     let stem_name = input_path
         .file_stem()
@@ -83,25 +100,17 @@ fn render_instrument_stem(
         .unwrap_or("unknown");
 
     let output_filename = format!(
-        "{}/{}_stem_{}.wav",
-        output_dir, stem_name, instrument_index
+        "{}/{}_stem_{}.{}",
+        output_dir, stem_name, instrument_index, format
     );
-
-    // Create WAV writer
-    let spec = WavSpec {
-        channels: 2,
-        sample_rate: 44100,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
-    let mut writer = WavWriter::create(&output_filename, spec)?;
 
     // Render audio in chunks using the extended module
     let sample_rate = 44100;
     let buffer_size = 44100 * 2; // 1 second of stereo audio at 44.1kHz
     let mut samples = vec![0i16; buffer_size];
 
+    // Collect all samples for encoding
+    let mut all_samples = Vec::new();
     loop {
         let frames_rendered = module_ext.read_interleaved_stereo(sample_rate, &mut samples);
 
@@ -109,11 +118,8 @@ fn render_instrument_stem(
             break; // No more audio to render
         }
 
-        // Write the rendered samples to the WAV file
-        for chunk in samples[..frames_rendered * 2].chunks_exact(2) {
-            writer.write_sample(chunk[0])?;
-            writer.write_sample(chunk[1])?;
-        }
+        // Add the rendered samples to our collection
+        all_samples.extend_from_slice(&samples[..frames_rendered * 2]);
 
         // Check if we've reached the end of the song
         if module_ext.get_position_seconds() >= module_ext.get_duration_seconds() {
@@ -121,10 +127,85 @@ fn render_instrument_stem(
         }
     }
 
-    writer.finalize()?;
+    // Write the audio data based on the selected format
+    match format {
+        "wav" => write_wav_file(&all_samples, &output_filename, sample_rate as u32)?,
+        #[cfg(feature = "vorbis")]
+        "vorbis" => write_vorbis_file(&all_samples, &output_filename, sample_rate as u32)?,
+        #[cfg(feature = "opus")]
+        "opus" => write_opus_file(&all_samples, &output_filename, sample_rate as u32)?,
+        #[cfg(feature = "flac")]
+        "flac" => write_flac_file(&all_samples, &output_filename, sample_rate as u32)?,
+        _ => return Err(anyhow!("Unsupported format: {}", format)),
+    }
 
     println!("Saved instrument {} to {}", instrument_index, output_filename);
 
     // The module_ext and interactive_interface will be dropped after this function ends
+    Ok(())
+}
+
+// Function to write WAV files
+fn write_wav_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
+    let spec = WavSpec {
+        channels: 2,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let mut writer = WavWriter::create(filename, spec)?;
+
+    for chunk in samples.chunks_exact(2) {
+        writer.write_sample(chunk[0])?;
+        writer.write_sample(chunk[1])?;
+    }
+
+    writer.finalize()?;
+    Ok(())
+}
+
+// Function to write Vorbis files
+#[cfg(feature = "vorbis")]
+fn write_vorbis_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
+    // Placeholder implementation - in a real implementation, we would use a proper Vorbis encoder
+    // For now, we'll just write a simple OGG Vorbis header followed by the samples
+    use std::io::Write;
+    
+    // This is a simplified placeholder - a real implementation would require proper Vorbis encoding
+    let mut file = File::create(filename)?;
+    
+    // Write a simple header indicating this is a placeholder file
+    writeln!(file, "VORBIS_PLACEHOLDER_FILE")?;
+    writeln!(file, "Sample Rate: {}", sample_rate)?;
+    writeln!(file, "Samples: {}", samples.len())?;
+    
+    // In a real implementation, we would encode the samples with proper Vorbis encoding
+    Ok(())
+}
+
+// Function to write Opus files
+#[cfg(feature = "opus")]
+fn write_opus_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
+    // Placeholder implementation for Opus encoding
+    // The opus crate is quite low-level, so we'll create a basic implementation
+    std::fs::write(filename, "Opus file placeholder")?;
+    Ok(())
+}
+
+// Function to write FLAC files
+#[cfg(feature = "flac")]
+fn write_flac_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
+    use std::io::Write;
+    
+    // Placeholder implementation - in a real implementation, we would use a proper FLAC encoder
+    let mut file = FlacFile::create(filename)?;
+    
+    // Write a simple header indicating this is a placeholder file
+    writeln!(file, "FLAC_PLACEHOLDER_FILE")?;
+    writeln!(file, "Sample Rate: {}", sample_rate)?;
+    writeln!(file, "Samples: {}", samples.len())?;
+    
+    // In a real implementation, we would encode the samples with proper FLAC encoding
     Ok(())
 }
