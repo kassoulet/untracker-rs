@@ -1,445 +1,208 @@
+mod audio;
+
 use anyhow::{anyhow, Result};
-use clap::Parser;
-use hound::{WavSpec, WavWriter};
+use audio::{AudioFormat, ExportOptions, ResampleMethod, write_audio_file};
+use clap::{Parser, ValueEnum};
 use openmpt::ext::ModuleExt;
 use openmpt::module::Logger;
-use openmpt::module::Module;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
+/// Untracker: Stem extractor for tracker modules (MOD, S3M, XM, IT, etc.)
 struct Args {
     /// Input module file path
     #[arg(short, long)]
     input: String,
 
     /// Output directory for stem files
-    #[arg(short, long, default_value = ".")]
+    #[arg(short, long)]
     output_dir: String,
 
+    /// Sample rate
+    #[arg(long, default_value_t = 44100)]
+    sample_rate: u32,
+
+    /// Number of channels (1 or 2)
+    #[arg(long, default_value_t = 2)]
+    channels: u32,
+
+    /// Resampling method
+    #[arg(long, default_value = "sinc")]
+    resample: ResampleMethodArg,
+
     /// Output format: wav, vorbis, opus, flac
-    #[arg(short, long, default_value = "wav")]
+    #[arg(long, default_value = "wav")]
     format: String,
+
+    /// Bit depth for lossless formats (16 or 24)
+    #[arg(long, default_value_t = 16)]
+    bit_depth: u32,
+
+    /// Bitrate for Opus format in kbps
+    #[arg(long, default_value_t = 128)]
+    opus_bitrate: u32,
+
+    /// Vorbis quality level (0-10)
+    #[arg(long, default_value_t = 5)]
+    vorbis_quality: u32,
+
+    /// Stereo separation in percent (0-200)
+    #[arg(long, default_value_t = 100)]
+    stereo_separation: u32,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum ResampleMethodArg {
+    Nearest,
+    Linear,
+    Cubic,
+    Sinc,
+}
+
+impl From<ResampleMethodArg> for ResampleMethod {
+    fn from(arg: ResampleMethodArg) -> Self {
+        match arg {
+            ResampleMethodArg::Nearest => ResampleMethod::Nearest,
+            ResampleMethodArg::Linear => ResampleMethod::Linear,
+            ResampleMethodArg::Cubic => ResampleMethod::Cubic,
+            ResampleMethodArg::Sinc => ResampleMethod::Sinc,
+        }
+    }
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let format: AudioFormat = args.format.parse()?;
 
-    // Validate format
-    match args.format.as_str() {
-        "wav" | "vorbis" | "opus" | "flac" => {}
-        _ => {
-            return Err(anyhow!(
-                "Invalid format. Supported formats: wav, vorbis, opus, flac"
-            ))
-        }
+    if args.channels != 1 && args.channels != 2 {
+        return Err(anyhow!("Only 1 (mono) or 2 (stereo) channels are supported"));
     }
 
-    // Create output directory if it doesn't exist
+    if args.bit_depth != 16 && args.bit_depth != 24 {
+        return Err(anyhow!("Only 16 or 24 bit depth is supported"));
+    }
+
+    let options = ExportOptions {
+        format,
+        sample_rate: args.sample_rate,
+        channels: args.channels,
+        bit_depth: args.bit_depth,
+        opus_bitrate: args.opus_bitrate,
+        vorbis_quality: args.vorbis_quality,
+        resample: args.resample.into(),
+        stereo_separation: args.stereo_separation as i32,
+    };
+
     fs::create_dir_all(&args.output_dir)?;
 
-    // Load the module to get instrument count
-    let mut module = load_module_from_file(&args.input)?;
+    let buffer = read_file_to_buffer(&args.input)?;
+    let module_ext = ModuleExt::from_memory(&buffer, Logger::None, &[])
+        .map_err(|_| anyhow!("Failed to load module"))?;
 
-    // Get the number of instruments in the module
+    let mut module = module_ext.get_module();
     let num_instruments = module.get_num_instruments();
+    let num_samples = module.get_num_samples();
 
-    // If there are no instruments, try to get the number of samples
-    let num_samples = if num_instruments == 0 {
-        module.get_num_samples()
-    } else {
-        0
-    };
+    let stem_name = Path::new(&args.input)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("stem");
 
     if num_instruments > 0 {
-        println!("Found {} instruments", num_instruments);
-
-        // Render each instrument as a separate stem
-        for i in 1..=num_instruments {
-            render_instrument_stem(
-                &args.input,
-                i,
-                &args.output_dir,
-                &args.input,
-                &args.format,
-            )?;
+        println!("Extracting {} instrument stems...", num_instruments);
+        for i in 0..num_instruments {
+            render_stem(&buffer, i, true, &args.output_dir, stem_name, &options)?;
         }
-    } else if num_samples > 0 {
-        println!("Found {} samples (no instruments)", num_samples);
-
-        // Render each sample as a separate stem
-        for i in 1..=num_samples {
-            render_sample_stem(
-                &args.input,
-                i,
-                &args.output_dir,
-                &args.input,
-                &args.format,
-            )?;
+    } else {
+        println!("Extracting {} sample stems (no instruments found)...", num_samples);
+        for i in 0..num_samples {
+            render_stem(&buffer, i, false, &args.output_dir, stem_name, &options)?;
         }
     }
 
     Ok(())
 }
 
-fn load_module_from_file(file_path: &str) -> Result<Module> {
-    let mut f =
-        std::fs::File::open(file_path).map_err(|e| anyhow!("Failed to open file: {}", e))?;
-    let mut buf = Vec::new();
-    f.read_to_end(&mut buf)
-        .map_err(|e| anyhow!("Failed to read file: {}", e))?;
-    Module::create_from_memory(&buf, Logger::None, &[])
-        .map_err(|_| anyhow!("Failed to create module from file"))
-}
-
-fn render_instrument_stem(
-    input_file: &str,
-    instrument_index: i32,
-    output_dir: &str,
-    input_filename: &str,
-    format: &str,
-) -> Result<()> {
-    println!("Rendering instrument {}...", instrument_index);
-
-    // Load a fresh copy of the module for each instrument
-    let mut file = std::fs::File::open(input_file)?;
+fn read_file_to_buffer(path: &str) -> Result<Vec<u8>> {
+    let mut file = fs::File::open(path)?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
+    Ok(buffer)
+}
 
-    // Use the extended module for rendering
-    let module_ext = ModuleExt::from_memory(&buffer, Logger::None, &[])
-        .map_err(|_| anyhow!("Failed to create extended module from file"))?;
+fn render_stem(
+    buffer: &[u8],
+    index: i32,
+    is_instrument: bool,
+    output_dir: &str,
+    base_name: &str,
+    options: &ExportOptions,
+) -> Result<()> {
+    let type_label = if is_instrument { "instrument" } else { "sample" };
+    println!("  Rendering {} {}...", type_label, index + 1);
 
-    // Get interactive interface for muting
+    let module_ext = ModuleExt::from_memory(buffer, Logger::None, &[])
+        .map_err(|_| anyhow!("Failed to re-load module for rendering"))?;
+
     let interactive = module_ext
         .get_interactive_interface()
         .ok_or_else(|| anyhow!("Interactive interface not available"))?;
 
-    // Mute all instruments first
     let mut module = module_ext.get_module();
-    let num_instruments = module.get_num_instruments();
-    for i in 0..num_instruments {
-        interactive.set_instrument_mute_status(&module_ext, i, true);
-    }
+    
+    // Configure render parameters
+    module.set_render_interpolation_filter_length(options.resample.to_openmpt_filter_length());
+    module.set_render_stereo_separation(options.stereo_separation);
 
-    // Unmute the target instrument (instrument_index is 1-based from main)
-    interactive.set_instrument_mute_status(&module_ext, instrument_index - 1, false);
-
-    // Generate output filename based on format
-    let input_path = Path::new(input_filename);
-    let stem_name = input_path
-        .file_stem()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap_or("unknown");
-
-    let output_filename = format!(
-        "{}/{}_instrument_{:03}.{}",
-        output_dir, stem_name, instrument_index, format
-    );
-
-    // Render audio in chunks using the extended module
-    let sample_rate = 44100;
-    let buffer_size = 44100 * 2; // 1 second of stereo audio at 44.1kHz
-    let mut samples = vec![0i16; buffer_size];
-
-    // Collect all samples for encoding
-    let mut all_samples = Vec::new();
-
-    // Render the isolated instrument
-    loop {
-        let frames_rendered = module_ext.read_interleaved_stereo(sample_rate, &mut samples);
-
-        if frames_rendered == 0 {
-            break; // No more audio to render
-        }
-
-        // Add the rendered samples to our collection
-        all_samples.extend_from_slice(&samples[..frames_rendered * 2]);
-
-        // Check if we've reached the end of the song
-        if module_ext.get_position_seconds() >= module_ext.get_duration_seconds() {
-            break;
-        }
-    }
-
-    // Write the audio data based on the selected format
-    match format {
-        "wav" => write_wav_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "vorbis")]
-        "vorbis" => write_vorbis_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "opus")]
-        "opus" => write_opus_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "flac")]
-        "flac" => write_flac_file(&all_samples, &output_filename, sample_rate as u32)?,
-        _ => return Err(anyhow!("Unsupported format: {}", format)),
-    }
-
-    println!(
-        "Saved instrument {} to {}",
-        instrument_index, output_filename
-    );
-
-    Ok(())
-}
-
-fn render_sample_stem(
-    input_file: &str,
-    sample_index: i32,
-    output_dir: &str,
-    input_filename: &str,
-    format: &str,
-) -> Result<()> {
-    println!("Rendering sample {}...", sample_index);
-
-    // Load a fresh copy of the module for each sample
-    let mut file = std::fs::File::open(input_file)?;
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-
-    // Use the extended module for rendering
-    let module_ext = ModuleExt::from_memory(&buffer, Logger::None, &[])
-        .map_err(|_| anyhow!("Failed to create extended module from file"))?;
-
-    // Get interactive interface for muting
-    let interactive = module_ext
-        .get_interactive_interface()
-        .ok_or_else(|| anyhow!("Interactive interface not available"))?;
-
-    // Mute all samples first
-    let mut module = module_ext.get_module();
-    let num_samples = module.get_num_samples();
-    for i in 0..num_samples {
-        interactive.set_instrument_mute_status(&module_ext, i, true);
-    }
-
-    // Unmute the target sample (sample_index is 1-based from main)
-    interactive.set_instrument_mute_status(&module_ext, sample_index - 1, false);
-
-    // Generate output filename based on format
-    let input_path = Path::new(input_filename);
-    let stem_name = input_path
-        .file_stem()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap_or("unknown");
-
-    let output_filename = format!(
-        "{}/{}_sample_{:03}.{}",
-        output_dir, stem_name, sample_index, format
-    );
-
-    // Render audio in chunks using the extended module
-    let sample_rate = 44100;
-    let buffer_size = 44100 * 2; // 1 second of stereo audio at 44.1kHz
-    let mut samples = vec![0i16; buffer_size];
-
-    // Collect all samples for encoding
-    let mut all_samples = Vec::new();
-
-    // Render the isolated sample
-    loop {
-        let frames_rendered = module_ext.read_interleaved_stereo(sample_rate, &mut samples);
-
-        if frames_rendered == 0 {
-            break; // No more audio to render
-        }
-
-        // Add the rendered samples to our collection
-        all_samples.extend_from_slice(&samples[..frames_rendered * 2]);
-
-        // Check if we've reached the end of the song
-        if module_ext.get_position_seconds() >= module_ext.get_duration_seconds() {
-            break;
-        }
-    }
-
-    // Write the audio data based on the selected format
-    match format {
-        "wav" => write_wav_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "vorbis")]
-        "vorbis" => write_vorbis_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "opus")]
-        "opus" => write_opus_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "flac")]
-        "flac" => write_flac_file(&all_samples, &output_filename, sample_rate as u32)?,
-        _ => return Err(anyhow!("Unsupported format: {}", format)),
-    }
-
-    println!("Saved sample {} to {}", sample_index, output_filename);
-
-    Ok(())
-}
-
-#[allow(dead_code)]
-fn render_full_mix(
-    input_file: &str,
-    _index: i32,
-    output_dir: &str,
-    input_filename: &str,
-    format: &str,
-) -> Result<()> {
-    println!("Rendering full mix");
-
-    // Load the module
-    let mut file = std::fs::File::open(input_file)?;
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
-
-    let module_ext = ModuleExt::from_memory(&buffer, Logger::None, &[])
-        .map_err(|_| anyhow!("Failed to create extended module from file"))?;
-
-    // Generate output filename based on format
-    let input_path = Path::new(input_filename);
-    let stem_name = input_path
-        .file_stem()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap_or("unknown");
-
-    let output_filename = format!("{}/{}_full_mix.{}", output_dir, stem_name, format);
-
-    // Render audio in chunks using the extended module
-    let sample_rate = 44100;
-    let buffer_size = 44100 * 2; // 1 second of stereo audio at 44.1kHz
-    let mut samples = vec![0i16; buffer_size];
-
-    // Collect all samples for encoding
-    let mut all_samples = Vec::new();
-
-    // Don't mute anything - render the full mix
-    loop {
-        let frames_rendered = module_ext.read_interleaved_stereo(sample_rate, &mut samples);
-
-        if frames_rendered == 0 {
-            break; // No more audio to render
-        }
-
-        // Add the rendered samples to our collection
-        all_samples.extend_from_slice(&samples[..frames_rendered * 2]);
-
-        // Check if we've reached the end of the song
-        if module_ext.get_position_seconds() >= module_ext.get_duration_seconds() {
-            break;
-        }
-    }
-
-    // Write the audio data based on the selected format
-    match format {
-        "wav" => write_wav_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "vorbis")]
-        "vorbis" => write_vorbis_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "opus")]
-        "opus" => write_opus_file(&all_samples, &output_filename, sample_rate as u32)?,
-        #[cfg(feature = "flac")]
-        "flac" => write_flac_file(&all_samples, &output_filename, sample_rate as u32)?,
-        _ => return Err(anyhow!("Unsupported format: {}", format)),
-    }
-
-    println!("Saved full mix to {}", output_filename);
-
-    // The module_ext will be dropped after this function ends
-    Ok(())
-}
-
-// Function to write WAV files
-fn write_wav_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
-    let spec = WavSpec {
-        channels: 2,
-        sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
+    let count = if is_instrument {
+        module.get_num_instruments()
+    } else {
+        module.get_num_samples()
     };
 
-    let mut writer = WavWriter::create(filename, spec)?;
-
-    for chunk in samples.chunks_exact(2) {
-        writer.write_sample(chunk[0])?;
-        writer.write_sample(chunk[1])?;
+    // Mute everything except the target
+    for i in 0..count {
+        interactive.set_instrument_mute_status(&module_ext, i, i != index);
     }
 
-    writer.finalize()?;
-    Ok(())
-}
+    let ext_str = match options.format {
+        AudioFormat::Wav => "wav",
+        #[cfg(feature = "vorbis")]
+        AudioFormat::Vorbis => "ogg",
+        #[cfg(feature = "opus")]
+        AudioFormat::Opus => "opus",
+        #[cfg(feature = "flac")]
+        AudioFormat::Flac => "flac",
+    };
 
-// Function to write Vorbis files
-#[cfg(feature = "vorbis")]
-fn write_vorbis_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
-    use std::fs::File;
-    use std::io::Write;
+    let output_path = format!(
+        "{}/{}_{}_{:03}.{}",
+        output_dir, base_name, type_label, index + 1, ext_str
+    );
 
-    // For now, we'll create a proper Ogg Vorbis file
-    // Symphonia doesn't currently have a Vorbis encoder, only decoders
-    // So we'll use a different approach or create a basic structure
+    let mut samples = vec![0i16; 8192];
+    let mut all_audio = Vec::new();
 
-    // Create a file to write to
-    let mut file = File::create(filename)?;
+    loop {
+        let rendered = if options.channels == 2 {
+            module_ext.read_interleaved_stereo(options.sample_rate as i32, &mut samples)
+        } else {
+            module.read_mono(options.sample_rate as i32, &mut samples[..4096])
+        };
 
-    // Write a basic Ogg Vorbis header structure
-    // This is a simplified approach - a real implementation would require
-    // a proper Vorbis encoder which is quite complex
-
-    // Write OggS header
-    file.write_all(b"OggS")?;
-
-    // Write sample rate and other header info
-    file.write_all(&sample_rate.to_le_bytes())?;
-    file.write_all(&(samples.len() as u32).to_le_bytes())?;
-
-    // Write the actual samples
-    for &sample in samples {
-        file.write_all(&sample.to_le_bytes())?;
+        if rendered == 0 { break; }
+        
+        let num_samples_to_copy = rendered * (options.channels as usize);
+        all_audio.extend_from_slice(&samples[..num_samples_to_copy]);
+        
+        if module_ext.get_position_seconds() >= module_ext.get_duration_seconds() {
+            break;
+        }
     }
 
-    Ok(())
-}
-
-// Function to write Opus files
-#[cfg(feature = "opus")]
-fn write_opus_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
-    use std::fs::File;
-    use std::io::Write;
-
-    // Create a file to write to
-    let mut file = File::create(filename)?;
-
-    // Write a proper Opus header
-    file.write_all(b"OpusHead")?; // Opus header tag
-    file.write_all(&[1])?; // Version
-    file.write_all(&[2])?; // Channel count (stereo)
-    file.write_all(&0u16.to_le_bytes())?; // Pre-skip
-    file.write_all(&sample_rate.to_le_bytes())?; // Input sample rate
-    file.write_all(&0u16.to_le_bytes())?; // Output gain
-    file.write_all(&[0])?; // Channel mapping family
-
-    // Write the actual samples
-    for &sample in samples {
-        file.write_all(&sample.to_le_bytes())?;
-    }
-
-    Ok(())
-}
-
-// Function to write FLAC files
-#[cfg(feature = "flac")]
-fn write_flac_file(samples: &[i16], filename: &str, sample_rate: u32) -> Result<()> {
-    use std::fs::File;
-    use std::io::Write;
-
-    // For now, create a basic FLAC-like file structure
-    // In a real implementation, we would use the proper flacenc API
-    let mut file = File::create(filename)?;
-
-    // Write a basic FLAC header with sample rate info
-    file.write_all(b"fLaC")?;
-    file.write_all(&sample_rate.to_le_bytes())?; // Include sample rate in header
-
-    // Write the samples as raw data
-    for &sample in samples {
-        file.write_all(&sample.to_le_bytes())?;
-    }
-
+    write_audio_file(&all_audio, &output_path, options)?;
     Ok(())
 }
