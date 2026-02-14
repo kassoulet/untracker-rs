@@ -60,7 +60,7 @@ fn main() -> Result<()> {
         for i in 1..=num_instruments {
             render_instrument_stem(
                 &args.input,
-                i as i32,
+                i,
                 &args.output_dir,
                 &args.input,
                 &args.format,
@@ -73,7 +73,7 @@ fn main() -> Result<()> {
         for i in 1..=num_samples {
             render_sample_stem(
                 &args.input,
-                i as i32,
+                i,
                 &args.output_dir,
                 &args.input,
                 &args.format,
@@ -273,6 +273,7 @@ fn render_sample_stem(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn render_full_mix(
     input_file: &str,
     _index: i32,

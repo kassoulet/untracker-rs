@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-openmpt = { path = "../openmpt-rs" }
+openmpt = { path = "crates/openmpt" }
 hound = "3.5"  # For WAV file output
 clap = { version = "4.0", features = ["derive"] }  # For command-line parsing
 anyhow = "1.0"  # For error handling
@@ -12,6 +12,13 @@ thiserror = "1.0"  # For custom error types
 symphonia = { version = "0.5.5", features = ["flac", "pcm", "ogg"], optional = true }  # For FLAC and Vorbis encoding
 opus = { version = "0.3.1", optional = true }  # For Opus encoding
 flacenc = { version = "0.5.1", optional = true }  # For FLAC encoding
+
+[workspace]
+members = [
+    ".",
+    "crates/openmpt",
+    "crates/openmpt-sys",
+]
 
 [features]
 default = []
