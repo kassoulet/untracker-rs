@@ -19,7 +19,8 @@ pub fn render_stem(
     let options = *options;
     #[cfg(feature = "opus")]
     let options = if options.format == AudioFormat::Opus
-        && ![8000, 12000, 16000, 24000, 48000].contains(&options.sample_rate) {
+        && ![8000, 12000, 16000, 24000, 48000].contains(&options.sample_rate)
+    {
         ExportOptions {
             sample_rate: 48000,
             ..options
@@ -33,7 +34,7 @@ pub fn render_stem(
     } else {
         "sample"
     };
-    
+
     if let Some(pb) = progress_bar {
         pb.set_message(format!("Rendering {} {}...", type_label, index + 1));
     } else if cfg!(test) {
@@ -42,7 +43,12 @@ pub fn render_stem(
     }
     // In non-test mode with no progress bar, don't print individual messages to avoid console spam
 
-    log::info!("Starting to render {} {} to {}", type_label, index + 1, output_dir);
+    log::info!(
+        "Starting to render {} {} to {}",
+        type_label,
+        index + 1,
+        output_dir
+    );
 
     let module_ext = ModuleExt::from_memory(buffer, Logger::None, &[])
         .map_err(|_| anyhow!("Failed to re-load module for rendering"))?;
@@ -122,7 +128,12 @@ pub fn render_stem(
             let rounded_percentage = (percentage as u64).min(100);
             if rounded_percentage > last_percentage as u64 {
                 last_percentage = rounded_percentage as f64;
-                pb.set_message(format!("{} {} - {:.1}% complete", type_label, index + 1, percentage));
+                pb.set_message(format!(
+                    "{} {} - {:.1}% complete",
+                    type_label,
+                    index + 1,
+                    percentage
+                ));
             }
         }
 
@@ -132,7 +143,12 @@ pub fn render_stem(
     }
 
     write_audio_file(&all_audio, &output_path, &options)?;
-    log::info!("Successfully rendered {} {} to {}", type_label, index + 1, output_path);
+    log::info!(
+        "Successfully rendered {} {} to {}",
+        type_label,
+        index + 1,
+        output_path
+    );
     Ok(())
 }
 

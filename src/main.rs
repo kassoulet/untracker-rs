@@ -92,7 +92,7 @@ fn main() -> Result<()> {
             })
             .init();
     }
-    
+
     let args = Args::parse();
     let format: AudioFormat = args.format.parse()?;
 
@@ -120,7 +120,7 @@ fn main() -> Result<()> {
     fs::create_dir_all(&args.output_dir)?;
 
     info!("Loading module file: {}", args.input);
-    
+
     let buffer = read_file_to_buffer(&args.input)?;
     let module_ext = ModuleExt::from_memory(&buffer, Logger::None, &[])
         .map_err(|_| anyhow!("Failed to load module"))?;
@@ -143,7 +143,15 @@ fn main() -> Result<()> {
     let is_instrument = num_instruments > 0;
 
     let total_stems = indices.len();
-    info!("Found {} {} to extract", total_stems, if is_instrument { "instruments" } else { "samples" });
+    info!(
+        "Found {} {} to extract",
+        total_stems,
+        if is_instrument {
+            "instruments"
+        } else {
+            "samples"
+        }
+    );
 
     // Create progress bar
     let pb = ProgressBar::new(total_stems as u64);
@@ -153,14 +161,14 @@ fn main() -> Result<()> {
             .unwrap()
             .progress_chars("#>-"),
     );
-    
+
     // Show initial message depending on whether we're in a test environment
     if is_instrument {
         println!("Extracting {} instrument stems", num_instruments);
     } else {
         println!("Extracting {} sample stems", num_samples);
     }
-    
+
     if !cfg!(test) {
         if is_instrument {
             pb.set_message(format!("Extracting {} instrument stems", num_instruments));
@@ -171,7 +179,7 @@ fn main() -> Result<()> {
 
     if args.parallel {
         use rayon::prelude::*;
-        
+
         if cfg!(test) {
             // For tests, run without progress bar
             indices.into_par_iter().try_for_each(|i| {
@@ -189,17 +197,20 @@ fn main() -> Result<()> {
             use indicatif::ParallelProgressIterator;
             // For normal execution, use progress bar
             // Don't pass progress bar to individual renders in parallel mode to avoid console spam
-            indices.into_par_iter().progress_with(pb.clone()).try_for_each(|i| {
-                render_stem(
-                    &buffer,
-                    i,
-                    is_instrument,
-                    &args.output_dir,
-                    stem_name,
-                    &options,
-                    None,
-                )
-            })?;
+            indices
+                .into_par_iter()
+                .progress_with(pb.clone())
+                .try_for_each(|i| {
+                    render_stem(
+                        &buffer,
+                        i,
+                        is_instrument,
+                        &args.output_dir,
+                        stem_name,
+                        &options,
+                        None,
+                    )
+                })?;
         }
     } else {
         for i in indices {

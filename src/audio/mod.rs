@@ -64,7 +64,12 @@ pub struct ExportOptions {
 }
 
 pub fn write_audio_file(samples: &[i16], filename: &str, options: &ExportOptions) -> Result<()> {
-    info!("Writing audio file: {} ({} samples, {}Hz)", filename, samples.len(), options.sample_rate);
+    info!(
+        "Writing audio file: {} ({} samples, {}Hz)",
+        filename,
+        samples.len(),
+        options.sample_rate
+    );
     let result = match options.format {
         AudioFormat::Wav => write_wav_file(samples, filename, options),
         #[cfg(feature = "vorbis")]
@@ -74,12 +79,12 @@ pub fn write_audio_file(samples: &[i16], filename: &str, options: &ExportOptions
         #[cfg(feature = "flac")]
         AudioFormat::Flac => write_flac_file(samples, filename, options),
     };
-    
+
     match &result {
         Ok(_) => info!("Successfully wrote audio file: {}", filename),
         Err(e) => log::error!("Failed to write audio file {}: {}", filename, e),
     }
-    
+
     result
 }
 

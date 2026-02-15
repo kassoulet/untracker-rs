@@ -13,34 +13,33 @@ fn main() {
         println!("cargo:rustc-link-search=native={}", lib_dir);
         println!("cargo:rustc-link-lib=static=openmpt");
 
-                        // libopenmpt is C++, so we need the C++ standard library
-                                let target = env::var("TARGET").unwrap();
-                                let is_musl = target.contains("musl");
-                                let rustflags = env::var("RUSTFLAGS").unwrap_or_default();
-                                let is_static_crt = rustflags.contains("target-feature=+crt-static") || is_musl;
-                                
-                                if target.contains("apple") || target.contains("freebsd") || target.contains("openbsd") {
-                                    println!("cargo:rustc-link-lib=dylib=c++");
-                                } else if is_static_crt {
-                                    println!("cargo:rustc-link-lib=static=stdc++");
-                                } else {
-                                    println!("cargo:rustc-link-lib=dylib=stdc++");
-                                }
-                        
-                                        // We still need the include paths for bindgen. 
-                        
-                                        // Try pkg-config but don't fail if it doesn't find the library (just to get include paths).
-                        
-                                        // We set cargo_metadata(false) to avoid linking against dependencies that are already in the static lib.
-                        
-                                        let mut pc = pkg_config::Config::new();
-                        
-                                        pc.cargo_metadata(false);
-                        
-                                        let pc_lib = pc.probe("libopenmpt").ok();
-                        
-                                
-                // If pkg-config failed, add the local openmpt directory as a fallback for headers
+        // libopenmpt is C++, so we need the C++ standard library
+        let target = env::var("TARGET").unwrap();
+        let is_musl = target.contains("musl");
+        let rustflags = env::var("RUSTFLAGS").unwrap_or_default();
+        let is_static_crt = rustflags.contains("target-feature=+crt-static") || is_musl;
+
+        if target.contains("apple") || target.contains("freebsd") || target.contains("openbsd") {
+            println!("cargo:rustc-link-lib=dylib=c++");
+        } else if is_static_crt {
+            println!("cargo:rustc-link-lib=static=stdc++");
+        } else {
+            println!("cargo:rustc-link-lib=dylib=stdc++");
+        }
+
+        // We still need the include paths for bindgen.
+
+        // Try pkg-config but don't fail if it doesn't find the library (just to get include paths).
+
+        // We set cargo_metadata(false) to avoid linking against dependencies that are already in the static lib.
+
+        let mut pc = pkg_config::Config::new();
+
+        pc.cargo_metadata(false);
+
+        let pc_lib = pc.probe("libopenmpt").ok();
+
+        // If pkg-config failed, add the local openmpt directory as a fallback for headers
         if pc_lib.is_none() {
             fallback_include = true;
         }
