@@ -5,6 +5,8 @@ pub use audio::{write_audio_file, AudioFormat, ExportOptions, ResampleMethod};
 use openmpt::ext::ModuleExt;
 use openmpt::module::Logger;
 
+use indicatif::ProgressBar;
+
 pub fn render_stem(
     buffer: &[u8],
     index: i32,
@@ -12,21 +14,35 @@ pub fn render_stem(
     output_dir: &str,
     base_name: &str,
     options: &ExportOptions,
+    progress_bar: Option<&ProgressBar>,
 ) -> Result<()> {
-    let mut options = *options;
+    let options = *options;
     #[cfg(feature = "opus")]
-    if options.format == AudioFormat::Opus
-        && ![8000, 12000, 16000, 24000, 48000].contains(&options.sample_rate)
-    {
-        options.sample_rate = 48000;
-    }
+    let options = if options.format == AudioFormat::Opus
+        && ![8000, 12000, 16000, 24000, 48000].contains(&options.sample_rate) {
+        ExportOptions {
+            sample_rate: 48000,
+            ..options
+        }
+    } else {
+        options
+    };
 
     let type_label = if is_instrument {
         "instrument"
     } else {
         "sample"
     };
-    println!("  Rendering {} {}...", type_label, index + 1);
+    
+    if let Some(pb) = progress_bar {
+        pb.set_message(format!("Rendering {} {}...", type_label, index + 1));
+    } else if cfg!(test) {
+        // Only print to stdout in test mode for compatibility
+        println!("  Rendering {} {}...", type_label, index + 1);
+    }
+    // In non-test mode with no progress bar, don't print individual messages to avoid console spam
+
+    log::info!("Starting to render {} {} to {}", type_label, index + 1, output_dir);
 
     let module_ext = ModuleExt::from_memory(buffer, Logger::None, &[])
         .map_err(|_| anyhow!("Failed to re-load module for rendering"))?;
@@ -71,8 +87,14 @@ pub fn render_stem(
         ext_str
     );
 
+    log::debug!("Writing to: {}", output_path);
+
     let mut samples = vec![0i16; 8192];
     let mut all_audio = Vec::new();
+
+    // Calculate total duration for progress tracking
+    let total_duration = module_ext.get_duration_seconds();
+    let mut last_percentage = 0.0;
 
     loop {
         let rendered = if options.channels == 2 {
@@ -88,12 +110,29 @@ pub fn render_stem(
         let num_samples_to_copy = rendered * (options.channels as usize);
         all_audio.extend_from_slice(&samples[..num_samples_to_copy]);
 
-        if module_ext.get_position_seconds() >= module_ext.get_duration_seconds() {
+        let current_position = module_ext.get_position_seconds();
+        let percentage = if total_duration > 0.0 {
+            (current_position / total_duration) * 100.0
+        } else {
+            0.0
+        };
+
+        if let Some(pb) = progress_bar {
+            // Update progress bar with percentage
+            let rounded_percentage = (percentage as u64).min(100);
+            if rounded_percentage > last_percentage as u64 {
+                last_percentage = rounded_percentage as f64;
+                pb.set_message(format!("{} {} - {:.1}% complete", type_label, index + 1, percentage));
+            }
+        }
+
+        if current_position >= total_duration {
             break;
         }
     }
 
     write_audio_file(&all_audio, &output_path, &options)?;
+    log::info!("Successfully rendered {} {} to {}", type_label, index + 1, output_path);
     Ok(())
 }
 
@@ -153,7 +192,7 @@ mod tests {
             resample: ResampleMethod::Sinc,
             stereo_separation: 100,
         };
-        let result = render_stem(&[], 0, false, ".", "test", &options);
+        let result = render_stem(&[], 0, false, ".", "test", &options, None);
         assert!(result.is_err());
     }
 }

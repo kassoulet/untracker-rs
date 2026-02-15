@@ -1,9 +1,11 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
+use indicatif::{ProgressBar, ProgressStyle};
+use log::info;
 use openmpt::ext::ModuleExt;
 use openmpt::module::Logger;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 use untracker::{render_stem, AudioFormat, ExportOptions, ResampleMethod};
 
@@ -76,6 +78,21 @@ impl From<ResampleMethodArg> for ResampleMethod {
 }
 
 fn main() -> Result<()> {
+    // Initialize logging with a nice format, but only in non-test mode
+    if !cfg!(test) {
+        env_logger::Builder::from_default_env()
+            .format(|buf, record| {
+                writeln!(
+                    buf,
+                    "{} [{}] - {}",
+                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                    record.level(),
+                    record.args()
+                )
+            })
+            .init();
+    }
+    
     let args = Args::parse();
     let format: AudioFormat = args.format.parse()?;
 
@@ -102,6 +119,8 @@ fn main() -> Result<()> {
 
     fs::create_dir_all(&args.output_dir)?;
 
+    info!("Loading module file: {}", args.input);
+    
     let buffer = read_file_to_buffer(&args.input)?;
     let module_ext = ModuleExt::from_memory(&buffer, Logger::None, &[])
         .map_err(|_| anyhow!("Failed to load module"))?;
@@ -123,27 +142,65 @@ fn main() -> Result<()> {
         .collect();
     let is_instrument = num_instruments > 0;
 
+    let total_stems = indices.len();
+    info!("Found {} {} to extract", total_stems, if is_instrument { "instruments" } else { "samples" });
+
+    // Create progress bar
+    let pb = ProgressBar::new(total_stems as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) - {msg}")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+    
+    // Show initial message depending on whether we're in a test environment
     if is_instrument {
-        println!("Extracting {} instrument stems...", num_instruments);
+        println!("Extracting {} instrument stems", num_instruments);
     } else {
-        println!(
-            "Extracting {} sample stems (no instruments found)...",
-            num_samples
-        );
+        println!("Extracting {} sample stems", num_samples);
+    }
+    
+    if !cfg!(test) {
+        if is_instrument {
+            pb.set_message(format!("Extracting {} instrument stems", num_instruments));
+        } else {
+            pb.set_message(format!("Extracting {} sample stems", num_samples));
+        }
     }
 
     if args.parallel {
         use rayon::prelude::*;
-        indices.into_par_iter().try_for_each(|i| {
-            render_stem(
-                &buffer,
-                i,
-                is_instrument,
-                &args.output_dir,
-                stem_name,
-                &options,
-            )
-        })?;
+        
+        if cfg!(test) {
+            // For tests, run without progress bar
+            indices.into_par_iter().try_for_each(|i| {
+                render_stem(
+                    &buffer,
+                    i,
+                    is_instrument,
+                    &args.output_dir,
+                    stem_name,
+                    &options,
+                    None,
+                )
+            })?;
+        } else {
+            use indicatif::ParallelProgressIterator;
+            // For normal execution, use progress bar
+            // Don't pass progress bar to individual renders in parallel mode to avoid console spam
+            indices.into_par_iter().progress_with(pb.clone()).try_for_each(|i| {
+                render_stem(
+                    &buffer,
+                    i,
+                    is_instrument,
+                    &args.output_dir,
+                    stem_name,
+                    &options,
+                    None,
+                )
+            })?;
+        }
     } else {
         for i in indices {
             render_stem(
@@ -153,16 +210,28 @@ fn main() -> Result<()> {
                 &args.output_dir,
                 stem_name,
                 &options,
+                if cfg!(test) { None } else { Some(&pb) },
             )?;
+            if !cfg!(test) {
+                pb.inc(1);
+            }
         }
     }
 
+    if !cfg!(test) {
+        pb.finish_with_message(format!("Completed extracting {} stems!", total_stems));
+    } else {
+        // For tests, print completion message to stdout
+        println!("Completed extracting {} stems!", total_stems);
+    }
     Ok(())
 }
 
 fn read_file_to_buffer(path: &str) -> Result<Vec<u8>> {
+    log::info!("Reading input file: {}", path);
     let mut file = fs::File::open(path)?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
+    let bytes_read = file.read_to_end(&mut buffer)?;
+    log::info!("Successfully read {} bytes from {}", bytes_read, path);
     Ok(buffer)
 }

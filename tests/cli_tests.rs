@@ -1,7 +1,7 @@
+use assert_cmd::Command as AssertCommand;
 use hound::WavReader;
 use predicates::prelude::*;
 use std::fs;
-use assert_cmd::Command as AssertCommand;
 use tempfile::tempdir;
 
 #[test]

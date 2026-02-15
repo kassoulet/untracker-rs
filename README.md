@@ -31,9 +31,6 @@ Static build (builds `libopenmpt` from source and bundles it):
 make static
 ```
 
-### Note on musl builds
-
-Building for musl targets requires additional setup due to cross-compilation complexities. The project can be built normally for glibc systems using the commands above.
 
 ## Usage
 
