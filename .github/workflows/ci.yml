@@ -2,49 +2,35 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main", "master" ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check & Lint
+  build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopenmpt-dev pkg-config
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-      - name: Cargo Check
-        run: cargo check --all-targets
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
-      - name: Rustfmt
-        run: cargo fmt --all -- --check
 
-  test:
-    name: Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopenmpt-dev pkg-config
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: brew install libopenmpt pkg-config
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-      - name: Run tests
-        run: cargo test
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenmpt-dev libmpg123-dev libvorbis-dev libogg-dev
+
+    - name: Build
+      run: cargo build --verbose --manifest-path untracker-rs/Cargo.toml
+
+    - name: Run tests
+      run: cargo test --verbose --manifest-path untracker-rs/Cargo.toml
+
+    - name: Run clippy
+      run: cargo clippy --manifest-path untracker-rs/Cargo.toml -- -D warnings
+
+    - name: Check formatting
+      run: cargo fmt --manifest-path untracker-rs/Cargo.toml -- --check

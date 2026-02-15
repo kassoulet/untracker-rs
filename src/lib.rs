@@ -1,7 +1,7 @@
 pub mod audio;
 
 use anyhow::{anyhow, Result};
-pub use audio::{AudioFormat, ExportOptions, ResampleMethod, write_audio_file};
+pub use audio::{write_audio_file, AudioFormat, ExportOptions, ResampleMethod};
 use openmpt::ext::ModuleExt;
 use openmpt::module::Logger;
 
@@ -15,13 +15,19 @@ pub fn render_stem(
 ) -> Result<()> {
     let mut options = *options;
     #[cfg(feature = "opus")]
-    if options.format == AudioFormat::Opus && ![8000, 12000, 16000, 24000, 48000].contains(&options.sample_rate) {
+    if options.format == AudioFormat::Opus
+        && ![8000, 12000, 16000, 24000, 48000].contains(&options.sample_rate)
+    {
         options.sample_rate = 48000;
     }
 
-    let type_label = if is_instrument { "instrument" } else { "sample" };
+    let type_label = if is_instrument {
+        "instrument"
+    } else {
+        "sample"
+    };
     println!("  Rendering {} {}...", type_label, index + 1);
-    
+
     let module_ext = ModuleExt::from_memory(buffer, Logger::None, &[])
         .map_err(|_| anyhow!("Failed to re-load module for rendering"))?;
 
@@ -30,7 +36,7 @@ pub fn render_stem(
         .ok_or_else(|| anyhow!("Interactive interface not available"))?;
 
     let mut module = module_ext.get_module();
-    
+
     // Configure render parameters
     module.set_render_interpolation_filter_length(options.resample.to_openmpt_filter_length());
     module.set_render_stereo_separation(options.stereo_separation);
@@ -58,7 +64,11 @@ pub fn render_stem(
 
     let output_path = format!(
         "{}/{}_{}_{:03}.{}",
-        output_dir, base_name, type_label, index + 1, ext_str
+        output_dir,
+        base_name,
+        type_label,
+        index + 1,
+        ext_str
     );
 
     let mut samples = vec![0i16; 8192];
@@ -71,11 +81,13 @@ pub fn render_stem(
             module.read_mono(options.sample_rate as i32, &mut samples[..4096])
         };
 
-        if rendered == 0 { break; }
-        
+        if rendered == 0 {
+            break;
+        }
+
         let num_samples_to_copy = rendered * (options.channels as usize);
         all_audio.extend_from_slice(&samples[..num_samples_to_copy]);
-        
+
         if module_ext.get_position_seconds() >= module_ext.get_duration_seconds() {
             break;
         }
@@ -99,18 +111,18 @@ mod tests {
 
     #[test]
     fn test_audio_format_parsing() {
-        assert!( "wav".parse::<AudioFormat>().is_ok());
-        assert!( "WAV".parse::<AudioFormat>().is_ok());
+        assert!("wav".parse::<AudioFormat>().is_ok());
+        assert!("WAV".parse::<AudioFormat>().is_ok());
         #[cfg(feature = "vorbis")]
         {
-            assert!( "vorbis".parse::<AudioFormat>().is_ok());
-            assert!( "ogg".parse::<AudioFormat>().is_ok());
+            assert!("vorbis".parse::<AudioFormat>().is_ok());
+            assert!("ogg".parse::<AudioFormat>().is_ok());
         }
         #[cfg(feature = "opus")]
-        assert!( "opus".parse::<AudioFormat>().is_ok());
+        assert!("opus".parse::<AudioFormat>().is_ok());
         #[cfg(feature = "flac")]
-        assert!( "flac".parse::<AudioFormat>().is_ok());
-        assert!( "invalid".parse::<AudioFormat>().is_err());
+        assert!("flac".parse::<AudioFormat>().is_ok());
+        assert!("invalid".parse::<AudioFormat>().is_err());
     }
 
     #[test]
@@ -128,7 +140,6 @@ mod tests {
         assert_eq!(options.sample_rate, 44100);
         assert_eq!(options.channels, 2);
     }
-
 
     #[test]
     fn test_render_stem_invalid_buffer() {

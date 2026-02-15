@@ -87,10 +87,9 @@ fn write_wav_file(samples: &[i16], filename: &str, options: &ExportOptions) -> R
         // If we want 24-bit, we need to shift. Hound's write_sample for i16 into 24-bit spec might need care.
         // Actually hound supports i32 for 24-bit.
         if options.bit_depth == 24 {
-                          writer.write_sample((sample as i32) << 8)?;
-             
+            writer.write_sample((sample as i32) << 8)?;
         } else {
-             writer.write_sample(sample)?;
+            writer.write_sample(sample)?;
         }
     }
     writer.finalize()?;
@@ -114,9 +113,9 @@ fn write_vorbis_file(samples: &[i16], filename: &str, options: &ExportOptions) -
 
 #[cfg(feature = "opus")]
 fn write_opus_file(samples: &[i16], filename: &str, options: &ExportOptions) -> Result<()> {
+    use ogg::{PacketWriteEndInfo, PacketWriter};
+    use opus::{Application, Channels, Encoder};
     use std::fs::File;
-    use opus::{Encoder, Application, Channels};
-    use ogg::{PacketWriter, PacketWriteEndInfo};
 
     let channels = match options.channels {
         1 => Channels::Mono,
@@ -147,7 +146,7 @@ fn write_opus_file(samples: &[i16], filename: &str, options: &ExportOptions) -> 
     head.extend_from_slice(&rate.to_le_bytes());
     head.extend_from_slice(&0i16.to_le_bytes()); // gain
     head.push(0); // mapping family
-    
+
     packet_writer.write_packet(head, 0x01, PacketWriteEndInfo::EndPage, 0)?;
 
     // 2. OpusTags
@@ -157,14 +156,14 @@ fn write_opus_file(samples: &[i16], filename: &str, options: &ExportOptions) -> 
     tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
     tags.extend_from_slice(vendor.as_bytes());
     tags.extend_from_slice(&0u32.to_le_bytes()); // user comment list length
-    
+
     packet_writer.write_packet(tags, 0x01, PacketWriteEndInfo::EndPage, 0)?;
 
     // 3. Audio packets
     let frame_size = (rate / 50) as usize; // 20ms
     let samples_per_frame = frame_size * options.channels as usize;
     let granule_mult = 48000 / rate;
-    
+
     let mut granule_pos = pre_skip;
     for chunk in samples.chunks(samples_per_frame) {
         let packet = if chunk.len() < samples_per_frame {

@@ -4,8 +4,9 @@
 
 extern crate openmpt_sys;
 
-#[macro_use] mod string_helper;
+#[macro_use]
+mod string_helper;
+pub mod ext;
 pub mod info;
 pub mod mod_command;
 pub mod module;
-pub mod ext;

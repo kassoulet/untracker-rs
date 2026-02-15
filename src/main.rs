@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
-use untracker::{AudioFormat, ExportOptions, ResampleMethod, render_stem};
 use openmpt::ext::ModuleExt;
 use openmpt::module::Logger;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
+use untracker::{render_stem, AudioFormat, ExportOptions, ResampleMethod};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -80,7 +80,9 @@ fn main() -> Result<()> {
     let format: AudioFormat = args.format.parse()?;
 
     if args.channels != 1 && args.channels != 2 {
-        return Err(anyhow!("Only 1 (mono) or 2 (stereo) channels are supported"));
+        return Err(anyhow!(
+            "Only 1 (mono) or 2 (stereo) channels are supported"
+        ));
     }
 
     if args.bit_depth != 16 && args.bit_depth != 24 {
@@ -113,23 +115,45 @@ fn main() -> Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("stem");
 
-    let indices: Vec<i32> = (0..(if num_instruments > 0 { num_instruments } else { num_samples })).collect();
+    let indices: Vec<i32> = (0..(if num_instruments > 0 {
+        num_instruments
+    } else {
+        num_samples
+    }))
+        .collect();
     let is_instrument = num_instruments > 0;
 
     if is_instrument {
         println!("Extracting {} instrument stems...", num_instruments);
     } else {
-        println!("Extracting {} sample stems (no instruments found)...", num_samples);
+        println!(
+            "Extracting {} sample stems (no instruments found)...",
+            num_samples
+        );
     }
 
     if args.parallel {
         use rayon::prelude::*;
         indices.into_par_iter().try_for_each(|i| {
-            render_stem(&buffer, i, is_instrument, &args.output_dir, stem_name, &options)
+            render_stem(
+                &buffer,
+                i,
+                is_instrument,
+                &args.output_dir,
+                stem_name,
+                &options,
+            )
         })?;
     } else {
         for i in indices {
-            render_stem(&buffer, i, is_instrument, &args.output_dir, stem_name, &options)?;
+            render_stem(
+                &buffer,
+                i,
+                is_instrument,
+                &args.output_dir,
+                stem_name,
+                &options,
+            )?;
         }
     }
 

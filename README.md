@@ -18,8 +18,14 @@ Untracker is a high-quality stem extraction tool for tracker music modules (MOD,
 
 ### Building
 
+Standard build (requires `libopenmpt` installed on the system):
 ```bash
 cargo build --release
+```
+
+Static build (builds `libopenmpt` from source and bundles it):
+```bash
+make static
 ```
 
 ## Usage
