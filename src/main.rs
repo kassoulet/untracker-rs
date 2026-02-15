@@ -50,6 +50,10 @@ struct Args {
     /// Stereo separation in percent (0-200)
     #[arg(long, default_value_t = 100)]
     stereo_separation: u32,
+
+    /// Render stems in parallel
+    #[arg(short, long)]
+    parallel: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -109,15 +113,23 @@ fn main() -> Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("stem");
 
-    if num_instruments > 0 {
+    let indices: Vec<i32> = (0..(if num_instruments > 0 { num_instruments } else { num_samples })).collect();
+    let is_instrument = num_instruments > 0;
+
+    if is_instrument {
         println!("Extracting {} instrument stems...", num_instruments);
-        for i in 0..num_instruments {
-            render_stem(&buffer, i, true, &args.output_dir, stem_name, &options)?;
-        }
     } else {
         println!("Extracting {} sample stems (no instruments found)...", num_samples);
-        for i in 0..num_samples {
-            render_stem(&buffer, i, false, &args.output_dir, stem_name, &options)?;
+    }
+
+    if args.parallel {
+        use rayon::prelude::*;
+        indices.into_par_iter().try_for_each(|i| {
+            render_stem(&buffer, i, is_instrument, &args.output_dir, stem_name, &options)
+        })?;
+    } else {
+        for i in indices {
+            render_stem(&buffer, i, is_instrument, &args.output_dir, stem_name, &options)?;
         }
     }
 

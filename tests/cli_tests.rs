@@ -25,6 +25,10 @@ fn test_mod_extraction() -> Result<(), Box<dyn std::error::Error>> {
     let expected_file = out_dir.path().join("cndmcrrp_sample_001.wav");
     assert!(expected_file.exists());
 
+    // Basic format check: WAV files start with "RIFF"
+    let content = fs::read(&expected_file)?;
+    assert!(content.starts_with(b"RIFF"));
+
     // Verify WAV properties
     let reader = WavReader::open(expected_file)?;
     let spec = reader.spec();
@@ -54,6 +58,13 @@ fn test_s3m_extraction() -> Result<(), Box<dyn std::error::Error>> {
     let expected_file = out_dir.path().join("nova_sample_001.wav");
     assert!(expected_file.exists());
 
+    // Verify WAV properties
+    let reader = WavReader::open(expected_file)?;
+    let spec = reader.spec();
+    assert_eq!(spec.channels, 2);
+    assert_eq!(spec.sample_rate, 44100);
+    assert_eq!(spec.bits_per_sample, 16);
+
     Ok(())
 }
 
@@ -76,8 +87,16 @@ fn test_xm_extraction() -> Result<(), Box<dyn std::error::Error>> {
     let expected_file = out_dir.path().join("zalza-karate_muffins_instrument_001.wav");
     assert!(expected_file.exists());
 
+    // Verify WAV properties
+    let reader = WavReader::open(expected_file)?;
+    let spec = reader.spec();
+    assert_eq!(spec.channels, 2);
+    assert_eq!(spec.sample_rate, 44100);
+    assert_eq!(spec.bits_per_sample, 16);
+
     Ok(())
 }
+
 
 #[test]
 fn test_complex_options() -> Result<(), Box<dyn std::error::Error>> {
@@ -99,6 +118,10 @@ fn test_complex_options() -> Result<(), Box<dyn std::error::Error>> {
 
     let expected_file = out_dir.path().join("cndmcrrp_sample_001.wav");
     assert!(expected_file.exists());
+
+    // Basic format check: WAV files start with "RIFF"
+    let content = fs::read(&expected_file)?;
+    assert!(content.starts_with(b"RIFF"));
 
     // Verify WAV properties
     let reader = WavReader::open(expected_file)?;
@@ -251,5 +274,25 @@ fn test_invalid_bit_depth() -> Result<(), Box<dyn std::error::Error>> {
        .arg("--bit-depth").arg("32");
     
     cmd.assert().failure();
+    Ok(())
+}
+
+#[test]
+fn test_parallel_rendering() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("untracker")?;
+    let out_dir = tempdir()?;
+    let out_path = out_dir.path().to_str().unwrap();
+
+    cmd.arg("-i").arg("tests/modules/cndmcrrp.mod")
+       .arg("-o").arg(out_path)
+       .arg("--parallel");
+    
+    cmd.assert()
+       .success()
+       .stdout(predicate::str::contains("Extracting 31 sample stems"));
+
+    let entries = fs::read_dir(out_path)?.count();
+    assert_eq!(entries, 31);
+
     Ok(())
 }
