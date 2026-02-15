@@ -26,3 +26,8 @@ vorbis = ["dep:symphonia"]
 opus = ["dep:opus"]
 flac = ["dep:flacenc", "dep:symphonia"]
 all_formats = ["vorbis", "opus", "flac"]
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
+tempfile = "3.8"
