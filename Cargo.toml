@@ -12,6 +12,7 @@ thiserror = "1.0"  # For custom error types
 rayon = "1.8"  # For parallel processing
 symphonia = { version = "0.5.5", features = ["flac", "pcm", "ogg"], optional = true }  # For FLAC and Vorbis encoding
 opus = { version = "0.3.1", optional = true }  # For Opus encoding
+ogg = { version = "0.9", optional = true }  # For Ogg encapsulation
 flacenc = { version = "0.5.1", optional = true }  # For FLAC encoding
 
 [workspace]
@@ -23,8 +24,8 @@ members = [
 
 [features]
 default = []
-vorbis = ["dep:symphonia"]
-opus = ["dep:opus"]
+vorbis = ["dep:symphonia", "dep:ogg"]
+opus = ["dep:opus", "dep:ogg"]
 flac = ["dep:flacenc", "dep:symphonia"]
 all_formats = ["vorbis", "opus", "flac"]
 

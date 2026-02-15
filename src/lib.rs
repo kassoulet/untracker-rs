@@ -13,6 +13,12 @@ pub fn render_stem(
     base_name: &str,
     options: &ExportOptions,
 ) -> Result<()> {
+    let mut options = *options;
+    #[cfg(feature = "opus")]
+    if options.format == AudioFormat::Opus && ![8000, 12000, 16000, 24000, 48000].contains(&options.sample_rate) {
+        options.sample_rate = 48000;
+    }
+
     let type_label = if is_instrument { "instrument" } else { "sample" };
     println!("  Rendering {} {}...", type_label, index + 1);
     
@@ -75,7 +81,7 @@ pub fn render_stem(
         }
     }
 
-    write_audio_file(&all_audio, &output_path, options)?;
+    write_audio_file(&all_audio, &output_path, &options)?;
     Ok(())
 }
 

@@ -180,6 +180,7 @@ fn test_opus_format() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("-i").arg("tests/modules/cndmcrrp.mod")
        .arg("-o").arg(out_path)
        .arg("--format").arg("opus")
+       .arg("--sample-rate").arg("48000")
        .arg("--opus-bitrate").arg("64");
     
     cmd.assert()
@@ -188,9 +189,11 @@ fn test_opus_format() -> Result<(), Box<dyn std::error::Error>> {
     let expected_file = out_dir.path().join("cndmcrrp_sample_001.opus");
     assert!(expected_file.exists());
 
-    // Basic format check: Opus files start with "OpusHead" (at some offset usually, but our placeholder starts with it)
+    // Basic format check: Ogg-encapsulated Opus files start with "OggS"
     let content = fs::read(expected_file)?;
-    assert!(content.starts_with(b"OpusHead"));
+    assert!(content.starts_with(b"OggS"));
+    // And should contain "OpusHead" early on
+    assert!(content[..100].windows(8).any(|w| w == b"OpusHead"));
 
     Ok(())
 }
