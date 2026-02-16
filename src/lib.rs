@@ -149,6 +149,14 @@ pub fn render_stem(
         index + 1,
         output_path
     );
+
+    if !cfg!(test) {
+        if let Some(pb) = progress_bar {
+            // Clear the progress bar line and print completed stem
+            pb.println(format!("  Extracted {}", output_path));
+        }
+    }
+
     Ok(())
 }
 

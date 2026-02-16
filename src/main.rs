@@ -162,7 +162,7 @@ fn main() -> Result<()> {
             .progress_chars("#>-"),
     );
 
-    // Show initial message depending on whether we're in a test environment
+    // Show initial summary message
     if is_instrument {
         println!("Extracting {} instrument stems", num_instruments);
     } else {
@@ -196,7 +196,6 @@ fn main() -> Result<()> {
         } else {
             use indicatif::ParallelProgressIterator;
             // For normal execution, use progress bar
-            // Don't pass progress bar to individual renders in parallel mode to avoid console spam
             indices
                 .into_par_iter()
                 .progress_with(pb.clone())
@@ -208,7 +207,7 @@ fn main() -> Result<()> {
                         &args.output_dir,
                         stem_name,
                         &options,
-                        None,
+                        Some(&pb),
                     )
                 })?;
         }
@@ -231,10 +230,8 @@ fn main() -> Result<()> {
 
     if !cfg!(test) {
         pb.finish_with_message(format!("Completed extracting {} stems!", total_stems));
-    } else {
-        // For tests, print completion message to stdout
-        println!("Completed extracting {} stems!", total_stems);
     }
+    println!("Completed extracting {} stems!", total_stems);
     Ok(())
 }
 
