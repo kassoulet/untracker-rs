@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use hound::{WavSpec, WavWriter};
 use log::info;
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioFormat {
@@ -63,32 +64,39 @@ pub struct ExportOptions {
     pub stereo_separation: i32,
 }
 
-pub fn write_audio_file(samples: &[i16], filename: &str, options: &ExportOptions) -> Result<()> {
+pub fn write_audio_file<P: AsRef<Path>>(
+    samples: &[i16],
+    filename: P,
+    options: &ExportOptions,
+) -> Result<()> {
+    let filename_path = filename.as_ref();
+    let filename_str = filename_path.to_string_lossy();
+
     info!(
         "Writing audio file: {} ({} samples, {}Hz)",
-        filename,
+        filename_str,
         samples.len(),
         options.sample_rate
     );
     let result = match options.format {
-        AudioFormat::Wav => write_wav_file(samples, filename, options),
+        AudioFormat::Wav => write_wav_file(samples, filename_path, options),
         #[cfg(feature = "vorbis")]
-        AudioFormat::Vorbis => write_vorbis_file(samples, filename, options),
+        AudioFormat::Vorbis => write_vorbis_file(samples, filename_path, options),
         #[cfg(feature = "opus")]
-        AudioFormat::Opus => write_opus_file(samples, filename, options),
+        AudioFormat::Opus => write_opus_file(samples, filename_path, options),
         #[cfg(feature = "flac")]
-        AudioFormat::Flac => write_flac_file(samples, filename, options),
+        AudioFormat::Flac => write_flac_file(samples, filename_path, options),
     };
 
     match &result {
-        Ok(_) => info!("Successfully wrote audio file: {}", filename),
-        Err(e) => log::error!("Failed to write audio file {}: {}", filename, e),
+        Ok(_) => info!("Successfully wrote audio file: {}", filename_str),
+        Err(e) => log::error!("Failed to write audio file {}: {}", filename_str, e),
     }
 
     result
 }
 
-fn write_wav_file(samples: &[i16], filename: &str, options: &ExportOptions) -> Result<()> {
+fn write_wav_file(samples: &[i16], filename: &Path, options: &ExportOptions) -> Result<()> {
     let spec = WavSpec {
         channels: options.channels as u16,
         sample_rate: options.sample_rate,
@@ -111,7 +119,7 @@ fn write_wav_file(samples: &[i16], filename: &str, options: &ExportOptions) -> R
 }
 
 #[cfg(feature = "vorbis")]
-fn write_vorbis_file(samples: &[i16], filename: &str, options: &ExportOptions) -> Result<()> {
+fn write_vorbis_file(samples: &[i16], filename: &Path, options: &ExportOptions) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
     let mut file = File::create(filename)?;
@@ -126,7 +134,7 @@ fn write_vorbis_file(samples: &[i16], filename: &str, options: &ExportOptions) -
 }
 
 #[cfg(feature = "opus")]
-fn write_opus_file(samples: &[i16], filename: &str, options: &ExportOptions) -> Result<()> {
+fn write_opus_file(samples: &[i16], filename: &Path, options: &ExportOptions) -> Result<()> {
     use ogg::{PacketWriteEndInfo, PacketWriter};
     use opus::{Application, Channels, Encoder};
     use std::fs::File;
@@ -195,7 +203,7 @@ fn write_opus_file(samples: &[i16], filename: &str, options: &ExportOptions) -> 
 }
 
 #[cfg(feature = "flac")]
-fn write_flac_file(samples: &[i16], filename: &str, options: &ExportOptions) -> Result<()> {
+fn write_flac_file(samples: &[i16], filename: &Path, options: &ExportOptions) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
     let mut file = File::create(filename)?;

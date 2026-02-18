@@ -96,6 +96,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let format: AudioFormat = args.format.parse()?;
 
+    // Input validation
     if args.channels != 1 && args.channels != 2 {
         return Err(anyhow!(
             "Only 1 (mono) or 2 (stereo) channels are supported"
@@ -104,6 +105,20 @@ fn main() -> Result<()> {
 
     if args.bit_depth != 16 && args.bit_depth != 24 {
         return Err(anyhow!("Only 16 or 24 bit depth is supported"));
+    }
+
+    if args.sample_rate < 8000 || args.sample_rate > 192000 {
+        return Err(anyhow!(
+            "Sample rate must be between 8000 and 192000 Hz (got {})",
+            args.sample_rate
+        ));
+    }
+
+    if args.stereo_separation > 200 {
+        return Err(anyhow!(
+            "Stereo separation must be between 0 and 200 percent (got {})",
+            args.stereo_separation
+        ));
     }
 
     let options = ExportOptions {
@@ -238,7 +253,21 @@ fn main() -> Result<()> {
 fn read_file_to_buffer(path: &str) -> Result<Vec<u8>> {
     log::info!("Reading input file: {}", path);
     let mut file = fs::File::open(path)?;
-    let mut buffer = Vec::new();
+
+    // Security: Check file size before reading to prevent OOM/DoS
+    let metadata = file.metadata()?;
+    let size = metadata.len();
+    const MAX_FILE_SIZE: u64 = 512 * 1024 * 1024; // 512 MB
+
+    if size > MAX_FILE_SIZE {
+        return Err(anyhow!(
+            "Input file too large ({} bytes). Maximum allowed size is {} bytes.",
+            size,
+            MAX_FILE_SIZE
+        ));
+    }
+
+    let mut buffer = Vec::with_capacity(size as usize);
     let bytes_read = file.read_to_end(&mut buffer)?;
     log::info!("Successfully read {} bytes from {}", bytes_read, path);
     Ok(buffer)
