@@ -114,9 +114,9 @@ fn main() -> Result<()> {
         ));
     }
 
-    if args.stereo_separation > 400 {
+    if args.stereo_separation > 200 {
         return Err(anyhow!(
-            "Stereo separation must be between 0 and 400 percent (got {})",
+            "Stereo separation must be between 0 and 200 percent (got {})",
             args.stereo_separation
         ));
     }
