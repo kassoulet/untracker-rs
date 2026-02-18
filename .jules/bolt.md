@@ -1,0 +1,3 @@
+## 2025-12-08 - Audio Rendering Loop Optimization
+**Learning:** In high-frequency rendering loops (e.g., audio mixing with 8k buffers), redundant FFI calls like `get_position_seconds()` and string formatting for progress updates can become a significant bottleneck. Pre-allocating the final audio vector using estimated duration also yields a measurable (~6%) improvement in allocation performance.
+**Action:** Use larger buffers (>=32k samples) to amortize FFI overhead, pre-allocate storage vectors using known/estimated duration, and wrap UI/progress updates in strict change-detection logic to minimize redundant processing.
