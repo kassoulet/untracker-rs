@@ -84,16 +84,16 @@ pub fn render_stem(
         AudioFormat::Flac => "flac",
     };
 
-    let output_path = format!(
-        "{}/{}_{}_{:03}.{}",
-        output_dir,
+    let mut output_path = std::path::PathBuf::from(output_dir);
+    output_path.push(format!(
+        "{}_{}_{:03}.{}",
         base_name,
         type_label,
         index + 1,
         ext_str
-    );
+    ));
 
-    log::debug!("Writing to: {}", output_path);
+    log::debug!("Writing to: {}", output_path.display());
 
     let mut samples = vec![0i16; 8192];
     let mut all_audio = Vec::new();
@@ -147,13 +147,13 @@ pub fn render_stem(
         "Successfully rendered {} {} to {}",
         type_label,
         index + 1,
-        output_path
+        output_path.display()
     );
 
     if !cfg!(test) {
         if let Some(pb) = progress_bar {
             // Clear the progress bar line and print completed stem
-            pb.println(format!("  Extracted {}", output_path));
+            pb.println(format!("  Extracted {}", output_path.display()));
         }
     }
 
