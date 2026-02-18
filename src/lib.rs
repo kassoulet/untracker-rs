@@ -95,18 +95,24 @@ pub fn render_stem(
 
     log::debug!("Writing to: {}", output_path);
 
-    let mut samples = vec![0i16; 8192];
-    let mut all_audio = Vec::new();
+    // Use a larger buffer to reduce FFI overhead and improve throughput
+    let mut samples = vec![0i16; 32768];
 
-    // Calculate total duration for progress tracking
+    // Pre-allocate the audio vector based on the estimated duration to avoid multiple reallocations
     let total_duration = module_ext.get_duration_seconds();
+    let estimated_samples = if total_duration > 0.0 {
+        (total_duration * options.sample_rate as f64 * options.channels as f64).ceil() as usize
+    } else {
+        0
+    };
+    let mut all_audio = Vec::with_capacity(estimated_samples);
     let mut last_percentage = 0.0;
 
     loop {
         let rendered = if options.channels == 2 {
             module_ext.read_interleaved_stereo(options.sample_rate as i32, &mut samples)
         } else {
-            module.read_mono(options.sample_rate as i32, &mut samples[..4096])
+            module.read_mono(options.sample_rate as i32, &mut samples[..16384])
         };
 
         if rendered == 0 {
@@ -116,15 +122,16 @@ pub fn render_stem(
         let num_samples_to_copy = rendered * (options.channels as usize);
         all_audio.extend_from_slice(&samples[..num_samples_to_copy]);
 
-        let current_position = module_ext.get_position_seconds();
-        let percentage = if total_duration > 0.0 {
-            (current_position / total_duration) * 100.0
-        } else {
-            0.0
-        };
-
+        // Progress tracking and early exit for modules with infinite loops
         if let Some(pb) = progress_bar {
-            // Update progress bar with percentage
+            let current_position = module_ext.get_position_seconds();
+            let percentage = if total_duration > 0.0 {
+                (current_position / total_duration) * 100.0
+            } else {
+                0.0
+            };
+
+            // Only update progress bar message when the rounded percentage changes
             let rounded_percentage = (percentage as u64).min(100);
             if rounded_percentage > last_percentage as u64 {
                 last_percentage = rounded_percentage as f64;
@@ -135,10 +142,15 @@ pub fn render_stem(
                     percentage
                 ));
             }
-        }
 
-        if current_position >= total_duration {
-            break;
+            if total_duration > 0.0 && current_position >= total_duration {
+                break;
+            }
+        } else if total_duration > 0.0 {
+            // Even without progress bar, check for completion if duration is known
+            if module_ext.get_position_seconds() >= total_duration {
+                break;
+            }
         }
     }
 
